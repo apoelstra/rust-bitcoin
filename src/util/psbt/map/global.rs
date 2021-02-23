@@ -17,8 +17,8 @@ use std::collections::btree_map::Entry;
 use std::io::{self, Cursor, Read};
 use std::cmp;
 
-use Transaction;
-use consensus::{encode, Encodable, Decodable};
+use {Transaction, VarInt};
+use consensus::{encode, serialize, Encodable, Decodable};
 use psbt::{self, map::Map, raw, Error};
 use util::endian::u32_to_array_le;
 use util::bip32::{ExtendedPubKey, KeySource, Fingerprint, DerivationPath, ChildNumber};
@@ -27,18 +27,57 @@ use util::bip32::{ExtendedPubKey, KeySource, Fingerprint, DerivationPath, ChildN
 const PSBT_GLOBAL_UNSIGNED_TX: u8 = 0x00;
 /// Type: Extended Public Key PSBT_GLOBAL_XPUB = 0x01
 const PSBT_GLOBAL_XPUB: u8 = 0x01;
+
+/// Type: Tx Version PSBT_GLOBAL_TX_VERSION = 0x02
+const PSBT_GLOBAL_TX_VERSION: u8 = 0x02;
+/// Type: Fallback Locktime PSBT_GLOBAL_FALLBACK_LOCKTIME = 0x03
+const PSBT_GLOBAL_FALLBACK_LOCKTIME: u8 = 0x03;
+/// Type: Tx Input Count PSBT_GLOBAL_INPUT_COUNT = 0x04
+const PSBT_GLOBAL_INPUT_COUNT: u8 = 0x04;
+/// Type: Tx Output Count PSBT_GLOBAL_OUTPUT_COUNT = 0x05
+const PSBT_GLOBAL_OUTPUT_COUNT: u8 = 0x05;
+/// Type: Transaction Modifiable Flags PSBT_GLOBAL_TX_MODIFIABLE = 0x06
+const PSBT_GLOBAL_TX_MODIFIABLE: u8 = 0x06;
+
 /// Type: Version Number PSBT_GLOBAL_VERSION = 0xFB
 const PSBT_GLOBAL_VERSION: u8 = 0xFB;
 /// Type: Proprietary Use Type PSBT_GLOBAL_PROPRIETARY = 0xFC
 const PSBT_GLOBAL_PROPRIETARY: u8 = 0xFC;
 
+/// Global transaction data
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(untagged))]
+pub enum TxData {
+    /// BIP-174 PSBT v0
+    V0 {
+        /// The complete unsigned transaction in the PSBT
+        unsigned_tx: Transaction,
+    },
+    /// BIP-370 PSBT v2
+    V2 {
+        /// Transaction version. Must be 2.
+        version: u32,
+        /// Locktime to use if no inputs specify a minimum locktime to use.
+        /// May be omitted in which case it is interpreted as 0.
+        fallback_locktime: u32,
+        /// Number of inputs in the transaction
+        input_count: usize,
+        /// Number of outputs in the transaction
+        output_count: usize,
+        /// Flags indicating that the transaction may be modified.
+        /// May be omitted in which case it is interpreted as 0.
+        tx_modifiable: u8,
+    },
+}
+
 /// A key-value map for global data.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Global {
-    /// The unsigned transaction, scriptSigs and witnesses for each input must be
-    /// empty.
-    pub unsigned_tx: Transaction,
+    /// Global transaction data
+    #[cfg_attr(feature = "serde", serde(flatten))]
+    pub tx_data: TxData,
     /// The version number of this PSBT. If omitted, the version number is 0.
     pub version: u32,
     /// A global map from extended public keys to the used key fingerprint and
@@ -66,7 +105,7 @@ impl Global {
         }
 
         Ok(Global {
-            unsigned_tx: tx,
+            tx_data: TxData::V0 { unsigned_tx: tx },
             xpub: Default::default(),
             version: 0,
             proprietary: Default::default(),
@@ -76,12 +115,18 @@ impl Global {
 
     /// Accessor for the number of inputs currently in the PSBT
     pub fn n_inputs(&self) -> usize {
-        self.unsigned_tx.input.len()
+        match self.tx_data {
+            TxData::V0 { ref unsigned_tx } => unsigned_tx.input.len(),
+            TxData::V2 { input_count, .. } => input_count,
+        }
     }
 
     /// Accessor for the number of outputs currently in the PSBT
     pub fn n_outputs(&self) -> usize {
-        self.unsigned_tx.output.len()
+        match self.tx_data {
+            TxData::V0 { ref unsigned_tx } => unsigned_tx.output.len(),
+            TxData::V2 { output_count, .. } => output_count,
+        }
     }
 }
 
@@ -110,22 +155,67 @@ impl Map for Global {
     fn get_pairs(&self) -> Result<Vec<raw::Pair>, io::Error> {
         let mut rv: Vec<raw::Pair> = Default::default();
 
-        rv.push(raw::Pair {
-            key: raw::Key {
-                type_value: PSBT_GLOBAL_UNSIGNED_TX,
-                key: vec![],
+        match self.tx_data {
+            TxData::V0 { ref unsigned_tx } => {
+                rv.push(raw::Pair {
+                    key: raw::Key {
+                        type_value: PSBT_GLOBAL_UNSIGNED_TX,
+                        key: vec![],
+                    },
+                    value: {
+                        // Manually serialized to ensure 0-input txs are serialized
+                        // without witnesses.
+                        let mut ret = Vec::new();
+                        unsigned_tx.version.consensus_encode(&mut ret)?;
+                        unsigned_tx.input.consensus_encode(&mut ret)?;
+                        unsigned_tx.output.consensus_encode(&mut ret)?;
+                        unsigned_tx.lock_time.consensus_encode(&mut ret)?;
+                        ret
+                    },
+                });
             },
-            value: {
-                // Manually serialized to ensure 0-input txs are serialized
-                // without witnesses.
-                let mut ret = Vec::new();
-                self.unsigned_tx.version.consensus_encode(&mut ret)?;
-                self.unsigned_tx.input.consensus_encode(&mut ret)?;
-                self.unsigned_tx.output.consensus_encode(&mut ret)?;
-                self.unsigned_tx.lock_time.consensus_encode(&mut ret)?;
-                ret
+            TxData::V2 { version, fallback_locktime, input_count, output_count, tx_modifiable } => {
+                rv.push(raw::Pair {
+                    key: raw::Key {
+                        type_value: PSBT_GLOBAL_TX_VERSION,
+                        key: vec![],
+                    },
+                    value: u32_to_array_le(version).to_vec(),
+                });
+                if fallback_locktime > 0 {
+                    rv.push(raw::Pair {
+                        key: raw::Key {
+                            type_value: PSBT_GLOBAL_FALLBACK_LOCKTIME,
+                            key: vec![],
+                        },
+                        value: u32_to_array_le(fallback_locktime).to_vec(),
+                    });
+                }
+                rv.push(raw::Pair {
+                    key: raw::Key {
+                        type_value: PSBT_GLOBAL_INPUT_COUNT,
+                        key: vec![],
+                    },
+                    value: serialize(&VarInt(input_count as u64)),
+                });
+                rv.push(raw::Pair {
+                    key: raw::Key {
+                        type_value: PSBT_GLOBAL_OUTPUT_COUNT,
+                        key: vec![],
+                    },
+                    value: serialize(&VarInt(output_count as u64)),
+                });
+                if tx_modifiable != 0 {
+                    rv.push(raw::Pair {
+                        key: raw::Key {
+                            type_value: PSBT_GLOBAL_TX_MODIFIABLE,
+                            key: vec![],
+                        },
+                        value: vec![tx_modifiable],
+                    });
+                }
             },
-        });
+        }
 
         for (xpub, (fingerprint, derivation)) in &self.xpub {
             rv.push(raw::Pair {

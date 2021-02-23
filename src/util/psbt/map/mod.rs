@@ -36,5 +36,6 @@ mod input;
 mod output;
 
 pub use self::global::Global;
+pub use self::global::TxData as GlobalTxData;
 pub use self::input::Input;
 pub use self::output::Output;

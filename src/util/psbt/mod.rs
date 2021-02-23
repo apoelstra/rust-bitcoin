@@ -30,7 +30,7 @@ use std::io;
 use {Script, Transaction, Txid};
 use consensus::{encode, Encodable, Decodable};
 pub use self::error::Error;
-pub use self::map::{Map, Global, Input, Output};
+pub use self::map::{Map, Global, GlobalTxData, Input, Output};
 
 /// A Partially Signed Transaction.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,20 +69,29 @@ impl PartiallySignedTransaction {
 
     /// Accessor for the locktime to be used in the final transaction
     pub fn locktime(&self) -> u32 {
-        // v0 PSBTs are easy because they have an explicit transaction
-        self.global.unsigned_tx.lock_time
+        match self.global.tx_data {
+            GlobalTxData::V0 { ref unsigned_tx } => unsigned_tx.lock_time,
+            GlobalTxData::V2 { fallback_locktime, .. } => fallback_locktime,
+        }
     }
 
     /// Accessor for the "unique identifier" of this PSBT, to be used when merging
     pub fn unique_id(&self) -> Txid {
-        // v0 PSBTs are easy because they have an explicit transaction
-        self.global.unsigned_tx.txid()
+        match self.global.tx_data {
+            // v0 PSBTs are easy because they have an explicit transaction
+            GlobalTxData::V0 { ref unsigned_tx } => unsigned_tx.txid(),
+            GlobalTxData::V2 { .. } => unimplemented!(),
+        }
     }
 
     /// Extract the Transaction from a PartiallySignedTransaction by filling in
     /// the available signature information in place.
     pub fn extract_tx(self) -> Transaction {
-        let mut tx: Transaction = self.global.unsigned_tx;
+        let mut tx = match self.global.tx_data {
+            // v0 PSBTs are easy because they have an explicit transaction
+            GlobalTxData::V0 { unsigned_tx } => unsigned_tx,
+            GlobalTxData::V2 { .. } => unimplemented!(),
+        };
 
         for (vin, psbtin) in tx.input.iter_mut().zip(self.inputs.into_iter()) {
             vin.script_sig = psbtin.final_script_sig.unwrap_or_else(Script::new);
@@ -198,7 +207,7 @@ mod tests {
     use {Network, PublicKey, Script, Transaction, TxIn, TxOut, OutPoint};
     use consensus::encode::{deserialize, serialize, serialize_hex};
     use util::bip32::{ChildNumber, ExtendedPrivKey, ExtendedPubKey, Fingerprint, KeySource};
-    use super::map::{Global, Output, Input};
+    use super::map::{Global, GlobalTxData, Output, Input};
     use super::raw;
 
     use super::PartiallySignedTransaction;
@@ -207,11 +216,13 @@ mod tests {
     fn trivial_psbt() {
         let psbt = PartiallySignedTransaction {
             global: Global {
-                unsigned_tx: Transaction {
-                    version: 2,
-                    lock_time: 0,
-                    input: vec![],
-                    output: vec![],
+                tx_data: GlobalTxData::V0 {
+                    unsigned_tx: Transaction {
+                        version: 2,
+                        lock_time: 0,
+                        input: vec![],
+                        output: vec![],
+                    },
                 },
                 xpub: Default::default(),
                 version: 0,
@@ -274,34 +285,36 @@ mod tests {
     #[test]
     fn serialize_then_deserialize_global() {
         let expected = Global {
-            unsigned_tx: Transaction {
-                version: 2,
-                lock_time: 1257139,
-                input: vec![TxIn {
-                    previous_output: OutPoint {
-                        txid: Txid::from_hex(
-                            "f61b1742ca13176464adb3cb66050c00787bb3a4eead37e985f2df1e37718126",
-                        ).unwrap(),
-                        vout: 0,
-                    },
-                    script_sig: Script::new(),
-                    sequence: 4294967294,
-                    witness: vec![],
-                }],
-                output: vec![
-                    TxOut {
-                        value: 99999699,
-                        script_pubkey: hex_script!(
-                            "76a914d0c59903c5bac2868760e90fd521a4665aa7652088ac"
-                        ),
-                    },
-                    TxOut {
-                        value: 100000000,
-                        script_pubkey: hex_script!(
-                            "a9143545e6e33b832c47050f24d3eeb93c9c03948bc787"
-                        ),
-                    },
-                ],
+            tx_data: GlobalTxData::V0 {
+                unsigned_tx: Transaction {
+                    version: 2,
+                    lock_time: 1257139,
+                    input: vec![TxIn {
+                        previous_output: OutPoint {
+                            txid: Txid::from_hex(
+                                "f61b1742ca13176464adb3cb66050c00787bb3a4eead37e985f2df1e37718126",
+                            ).unwrap(),
+                            vout: 0,
+                        },
+                        script_sig: Script::new(),
+                        sequence: 4294967294,
+                        witness: vec![],
+                    }],
+                    output: vec![
+                        TxOut {
+                            value: 99999699,
+                            script_pubkey: hex_script!(
+                                "76a914d0c59903c5bac2868760e90fd521a4665aa7652088ac"
+                            ),
+                        },
+                        TxOut {
+                            value: 100000000,
+                            script_pubkey: hex_script!(
+                                "a9143545e6e33b832c47050f24d3eeb93c9c03948bc787"
+                            ),
+                        },
+                    ],
+                },
             },
             xpub: Default::default(),
             version: 0,
@@ -445,7 +458,7 @@ mod tests {
         use blockdata::script::Script;
         use blockdata::transaction::{SigHashType, Transaction, TxIn, TxOut, OutPoint};
         use consensus::encode::serialize_hex;
-        use util::psbt::map::{Map, Global, Input, Output};
+        use util::psbt::map::{Map, Global, GlobalTxData, Input, Output};
         use util::psbt::raw;
         use util::psbt::PartiallySignedTransaction;
 
@@ -483,30 +496,32 @@ mod tests {
         fn valid_vector_1() {
             let unserialized = PartiallySignedTransaction {
                 global: Global {
-                    unsigned_tx: Transaction {
-                        version: 2,
-                        lock_time: 1257139,
-                        input: vec![TxIn {
-                            previous_output: OutPoint {
-                                txid: Txid::from_hex(
-                                    "f61b1742ca13176464adb3cb66050c00787bb3a4eead37e985f2df1e37718126",
-                                ).unwrap(),
-                                vout: 0,
-                            },
-                            script_sig: Script::new(),
-                            sequence: 4294967294,
-                            witness: vec![],
-                        }],
-                        output: vec![
-                            TxOut {
-                                value: 99999699,
-                                script_pubkey: hex_script!("76a914d0c59903c5bac2868760e90fd521a4665aa7652088ac"),
-                            },
-                            TxOut {
-                                value: 100000000,
-                                script_pubkey: hex_script!("a9143545e6e33b832c47050f24d3eeb93c9c03948bc787"),
-                            },
-                        ],
+                    tx_data: GlobalTxData::V0 {
+                        unsigned_tx: Transaction {
+                            version: 2,
+                            lock_time: 1257139,
+                            input: vec![TxIn {
+                                previous_output: OutPoint {
+                                    txid: Txid::from_hex(
+                                        "f61b1742ca13176464adb3cb66050c00787bb3a4eead37e985f2df1e37718126",
+                                    ).unwrap(),
+                                    vout: 0,
+                                },
+                                script_sig: Script::new(),
+                                sequence: 4294967294,
+                                witness: vec![],
+                            }],
+                            output: vec![
+                                TxOut {
+                                    value: 99999699,
+                                    script_pubkey: hex_script!("76a914d0c59903c5bac2868760e90fd521a4665aa7652088ac"),
+                                },
+                                TxOut {
+                                    value: 100000000,
+                                    script_pubkey: hex_script!("a9143545e6e33b832c47050f24d3eeb93c9c03948bc787"),
+                                },
+                            ],
+                        },
                     },
                     xpub: Default::default(),
                     version: 0,
@@ -605,7 +620,10 @@ mod tests {
             assert_eq!(psbt.inputs.len(), 1);
             assert_eq!(psbt.outputs.len(), 2);
 
-            let tx_input = &psbt.global.unsigned_tx.input[0];
+            let tx_input = match psbt.global.tx_data {
+                GlobalTxData::V0 { ref unsigned_tx } => &unsigned_tx.input[0],
+                GlobalTxData::V2 { .. } => panic!("should decode as a v0 PSBT"),
+            };
             let psbt_non_witness_utxo = (&psbt.inputs[0].non_witness_utxo).as_ref().unwrap();
 
             assert_eq!(tx_input.previous_output.txid, psbt_non_witness_utxo.txid());
@@ -708,30 +726,32 @@ mod tests {
         // same vector as valid_vector_1 from BIPs with added
         let mut unserialized = PartiallySignedTransaction {
             global: Global {
-                unsigned_tx: Transaction {
-                    version: 2,
-                    lock_time: 1257139,
-                    input: vec![TxIn {
-                        previous_output: OutPoint {
-                            txid: Txid::from_hex(
-                                "f61b1742ca13176464adb3cb66050c00787bb3a4eead37e985f2df1e37718126",
-                            ).unwrap(),
-                            vout: 0,
-                        },
-                        script_sig: Script::new(),
-                        sequence: 4294967294,
-                        witness: vec![],
-                    }],
-                    output: vec![
-                        TxOut {
-                            value: 99999699,
-                            script_pubkey: hex_script!("76a914d0c59903c5bac2868760e90fd521a4665aa7652088ac"),
-                        },
-                        TxOut {
-                            value: 100000000,
-                            script_pubkey: hex_script!("a9143545e6e33b832c47050f24d3eeb93c9c03948bc787"),
-                        },
-                    ],
+                tx_data: GlobalTxData::V0 {
+                    unsigned_tx: Transaction {
+                        version: 2,
+                        lock_time: 1257139,
+                        input: vec![TxIn {
+                            previous_output: OutPoint {
+                                txid: Txid::from_hex(
+                                    "f61b1742ca13176464adb3cb66050c00787bb3a4eead37e985f2df1e37718126",
+                                ).unwrap(),
+                                vout: 0,
+                            },
+                            script_sig: Script::new(),
+                            sequence: 4294967294,
+                            witness: vec![],
+                        }],
+                        output: vec![
+                            TxOut {
+                                value: 99999699,
+                                script_pubkey: hex_script!("76a914d0c59903c5bac2868760e90fd521a4665aa7652088ac"),
+                            },
+                            TxOut {
+                                value: 100000000,
+                                script_pubkey: hex_script!("a9143545e6e33b832c47050f24d3eeb93c9c03948bc787"),
+                            },
+                        ],
+                    },
                 },
                 version: 0,
                 xpub: Default::default(),
