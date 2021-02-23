@@ -18,23 +18,18 @@
 //! defined at https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki
 //! except we define PSBTs containing non-standard SigHash types as invalid.
 
-use blockdata::script::Script;
-use blockdata::transaction::Transaction;
-use consensus::{encode, Encodable, Decodable};
+mod error;
+#[macro_use]
+mod macros;
+mod map;
+pub mod raw;
+pub mod serialize;
 
 use std::io;
 
-mod error;
+use {Script, Transaction};
+use consensus::{encode, Encodable, Decodable};
 pub use self::error::Error;
-
-pub mod raw;
-
-#[macro_use]
-mod macros;
-
-pub mod serialize;
-
-mod map;
 pub use self::map::{Map, Global, Input, Output};
 
 /// A Partially Signed Transaction.
@@ -171,14 +166,11 @@ mod tests {
 
     use secp256k1::Secp256k1;
 
-    use blockdata::script::Script;
-    use blockdata::transaction::{Transaction, TxIn, TxOut, OutPoint};
-    use network::constants::Network::Bitcoin;
+    use {Network, PublicKey, Script, Transaction, TxIn, TxOut, OutPoint};
     use consensus::encode::{deserialize, serialize, serialize_hex};
     use util::bip32::{ChildNumber, ExtendedPrivKey, ExtendedPubKey, Fingerprint, KeySource};
-    use util::key::PublicKey;
-    use util::psbt::map::{Global, Output, Input};
-    use util::psbt::raw;
+    use super::map::{Global, Output, Input};
+    use super::raw;
 
     use super::PartiallySignedTransaction;
 
@@ -213,7 +205,7 @@ mod tests {
 
         let mut hd_keypaths: BTreeMap<PublicKey, KeySource> = Default::default();
 
-        let mut sk: ExtendedPrivKey = ExtendedPrivKey::new_master(Bitcoin, &seed).unwrap();
+        let mut sk: ExtendedPrivKey = ExtendedPrivKey::new_master(Network::Bitcoin, &seed).unwrap();
 
         let fprint: Fingerprint = sk.fingerprint(&secp);
 

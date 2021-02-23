@@ -17,12 +17,9 @@ use std::collections::btree_map::Entry;
 use std::io::{self, Cursor, Read};
 use std::cmp;
 
-use blockdata::transaction::Transaction;
+use Transaction;
 use consensus::{encode, Encodable, Decodable};
-use util::psbt::map::Map;
-use util::psbt::raw;
-use util::psbt;
-use util::psbt::Error;
+use psbt::{self, map::Map, raw, Error};
 use util::endian::u32_to_array_le;
 use util::bip32::{ExtendedPubKey, KeySource, Fingerprint, DerivationPath, ChildNumber};
 

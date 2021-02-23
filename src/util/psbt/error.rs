@@ -12,12 +12,11 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 
-use blockdata::transaction::Transaction;
+use Transaction;
 use consensus::encode;
-use util::psbt::raw;
+use super::raw;
 
 use hashes;
 

@@ -88,6 +88,7 @@ pub use util::amount::SignedAmount;
 pub use util::key::PrivateKey;
 pub use util::key::PublicKey;
 pub use util::merkleblock::MerkleBlock;
+pub use util::psbt;
 
 #[cfg(all(test, feature = "unstable"))] use tests::EmptyWrite;
 
