@@ -14,7 +14,7 @@
 
 use std::{error, fmt};
 
-use Transaction;
+use Txid;
 use consensus::encode;
 use super::raw;
 
@@ -52,11 +52,11 @@ pub enum Error {
     NoMorePairs,
     /// Attempting to merge with a PSBT describing a different unsigned
     /// transaction.
-    UnexpectedUnsignedTx {
+    UniqueIdMismatch {
         /// Expected
-        expected: Transaction,
+        expected: Txid,
         /// Actual
-        actual: Transaction,
+        actual: Txid,
     },
     /// Unable to parse as a standard SigHash type.
     NonStandardSigHashType(u32),
@@ -83,7 +83,7 @@ impl fmt::Display for Error {
             Error::InvalidKey(ref rkey) => write!(f, "invalid key: {}", rkey),
             Error::InvalidProprietaryKey => write!(f, "non-proprietary key type found when proprietary key was expected"),
             Error::DuplicateKey(ref rkey) => write!(f, "duplicate key: {}", rkey),
-            Error::UnexpectedUnsignedTx { expected: ref e, actual: ref a } => write!(f, "different unsigned transaction: expected {}, actual {}", e.txid(), a.txid()),
+            Error::UniqueIdMismatch { expected: ref e, actual: ref a } => write!(f, "different id: expected {}, actual {}", e, a),
             Error::NonStandardSigHashType(ref sht) => write!(f, "non-standard sighash type: {}", sht),
             Error::InvalidMagic => f.write_str("invalid magic"),
             Error::InvalidSeparator => f.write_str("invalid separator"),

@@ -73,6 +73,16 @@ impl Global {
             unknown: Default::default(),
         })
     }
+
+    /// Accessor for the number of inputs currently in the PSBT
+    pub fn n_inputs(&self) -> usize {
+        self.unsigned_tx.input.len()
+    }
+
+    /// Accessor for the number of outputs currently in the PSBT
+    pub fn n_outputs(&self) -> usize {
+        self.unsigned_tx.output.len()
+    }
 }
 
 impl Map for Global {
@@ -163,13 +173,6 @@ impl Map for Global {
     // Keep in mind that according to BIP 174 this function must be commutative, i.e.
     // A.merge(B) == B.merge(A)
     fn merge(&mut self, other: Self) -> Result<(), psbt::Error> {
-        if self.unsigned_tx != other.unsigned_tx {
-            return Err(psbt::Error::UnexpectedUnsignedTx {
-                expected: self.unsigned_tx.clone(),
-                actual: other.unsigned_tx,
-            });
-        }
-
         // BIP 174: The Combiner must remove any duplicate key-value pairs, in accordance with
         //          the specification. It can pick arbitrarily when conflicts occur.
 

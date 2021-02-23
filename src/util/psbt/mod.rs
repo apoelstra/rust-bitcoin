@@ -27,7 +27,7 @@ pub mod serialize;
 
 use std::io;
 
-use {Script, Transaction};
+use {Script, Transaction, Txid};
 use consensus::{encode, Encodable, Decodable};
 pub use self::error::Error;
 pub use self::map::{Map, Global, Input, Output};
@@ -57,6 +57,28 @@ impl PartiallySignedTransaction {
         })
     }
 
+    /// Accessor for the number of inputs currently in the PSBT
+    pub fn n_inputs(&self) -> usize {
+        self.global.n_inputs()
+    }
+
+    /// Accessor for the number of outputs currently in the PSBT
+    pub fn n_outputs(&self) -> usize {
+        self.global.n_outputs()
+    }
+
+    /// Accessor for the locktime to be used in the final transaction
+    pub fn locktime(&self) -> u32 {
+        // v0 PSBTs are easy because they have an explicit transaction
+        self.global.unsigned_tx.lock_time
+    }
+
+    /// Accessor for the "unique identifier" of this PSBT, to be used when merging
+    pub fn unique_id(&self) -> Txid {
+        // v0 PSBTs are easy because they have an explicit transaction
+        self.global.unsigned_tx.txid()
+    }
+
     /// Extract the Transaction from a PartiallySignedTransaction by filling in
     /// the available signature information in place.
     pub fn extract_tx(self) -> Transaction {
@@ -72,6 +94,13 @@ impl PartiallySignedTransaction {
 
     /// Attempt to merge with another `PartiallySignedTransaction`.
     pub fn merge(&mut self, other: Self) -> Result<(), self::Error> {
+        if self.unique_id() != other.unique_id() {
+            return Err(Error::UniqueIdMismatch {
+                expected: self.unique_id(),
+                actual: other.unique_id(),
+            });
+        }
+
         self.global.merge(other.global)?;
 
         for (self_input, other_input) in self.inputs.iter_mut().zip(other.inputs.into_iter()) {
@@ -125,7 +154,7 @@ impl Decodable for PartiallySignedTransaction {
         let global: Global = Decodable::consensus_decode(&mut d)?;
 
         let inputs: Vec<Input> = {
-            let inputs_len: usize = (&global.unsigned_tx.input).len();
+            let inputs_len = global.n_inputs();
 
             let mut inputs: Vec<Input> = Vec::with_capacity(inputs_len);
 
@@ -137,7 +166,7 @@ impl Decodable for PartiallySignedTransaction {
         };
 
         let outputs: Vec<Output> = {
-            let outputs_len: usize = (&global.unsigned_tx.output).len();
+            let outputs_len = global.n_outputs();
 
             let mut outputs: Vec<Output> = Vec::with_capacity(outputs_len);
 
@@ -644,9 +673,8 @@ mod tests {
             assert_eq!(psbt.inputs.len(), 1);
             assert_eq!(psbt.outputs.len(), 1);
 
-            let tx = &psbt.global.unsigned_tx;
             assert_eq!(
-                tx.txid(),
+                psbt.unique_id(),
                 Txid::from_hex(
                     "75c5c9665a570569ad77dd1279e6fd4628a093c4dcbf8d41532614044c14c115"
                 ).unwrap()
