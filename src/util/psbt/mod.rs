@@ -686,7 +686,7 @@ mod tests {
 
         #[test]
         fn valid_vector_6() {
-            let psbt: PartiallySignedTransaction = hex_psbt!("70736274ff01003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000a0f0102030405060708090f0102030405060708090a0b0c0d0e0f0000").unwrap();
+            let psbt: PartiallySignedTransaction = hex_psbt!("70736274ff01003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000af00102030405060708090f0102030405060708090a0b0c0d0e0f0000").unwrap();
 
             assert_eq!(psbt.inputs.len(), 1);
             assert_eq!(psbt.outputs.len(), 1);
@@ -700,7 +700,7 @@ mod tests {
 
             let mut unknown: BTreeMap<raw::Key, Vec<u8>> = BTreeMap::new();
             let key: raw::Key = raw::Key {
-                type_value: 0x0fu8,
+                type_value: 0xf0u8,
                 key: Vec::from_hex("010203040506070809").unwrap(),
             };
             let value: Vec<u8> = Vec::from_hex("0102030405060708090a0b0c0d0e0f").unwrap();

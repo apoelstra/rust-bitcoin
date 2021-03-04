@@ -19,7 +19,7 @@
 
 use std::io;
 
-use {PublicKey, Script, SigHashType, Transaction, TxOut};
+use {PublicKey, Script, SigHashType, Transaction, TxOut, Txid};
 use consensus::encode::{self, serialize, Decodable};
 use util::bip32::{ChildNumber, Fingerprint, KeySource};
 use hashes::{hash160, ripemd160, sha256, sha256d, Hash};
@@ -40,7 +40,10 @@ pub trait Deserialize: Sized {
 
 impl_psbt_de_serialize!(Transaction);
 impl_psbt_de_serialize!(TxOut);
+impl_psbt_de_serialize!(u32);
+impl_psbt_de_serialize!(u64);
 impl_psbt_de_serialize!(Vec<Vec<u8>>); // scriptWitness
+impl_psbt_hash_de_serialize!(Txid);
 impl_psbt_hash_de_serialize!(ripemd160::Hash);
 impl_psbt_hash_de_serialize!(sha256::Hash);
 impl_psbt_hash_de_serialize!(hash160::Hash);

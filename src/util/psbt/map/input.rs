@@ -15,12 +15,10 @@
 use std::io;
 use std::collections::btree_map::{BTreeMap, Entry};
 
-use blockdata::script::Script;
-use blockdata::transaction::{SigHashType, Transaction, TxOut};
+use {PublicKey, Script, SigHashType, Transaction, Txid, TxOut};
 use consensus::encode;
 use util::bip32::KeySource;
 use hashes::{self, hash160, ripemd160, sha256, sha256d};
-use util::key::PublicKey;
 use util::psbt;
 use util::psbt::map::Map;
 use util::psbt::raw;
@@ -53,6 +51,16 @@ const PSBT_IN_SHA256: u8 = 0x0b;
 const PSBT_IN_HASH160: u8 = 0x0c;
 /// Type: HASH256 preimage PSBT_IN_HASH256 = 0x0d
 const PSBT_IN_HASH256: u8 = 0x0d;
+/// Type: Previous TXID PSBT_IN_PREVIOUS_TXID = 0x0e
+const PSBT_IN_PREVIOUS_TXID: u8 = 0x0e;
+/// Type: Spent Output Index PSBT_IN_OUTPUT_INDEX = 0x0f
+const PSBT_IN_OUTPUT_INDEX: u8 = 0x0f;
+/// Type: Sequence Number PSBT_IN_SEQUENCE = 0x10
+const PSBT_IN_SEQUENCE: u8 = 0x10;
+/// Type: Required Time-based Locktime PSBT_IN_REQUIRED_TIME_LOCKTIME = 0x11
+const PSBT_IN_REQUIRED_TIME_LOCKTIME: u8 = 0x11;
+/// Type: Required Height-based Locktime PSBT_IN_REQUIRED_HEIGHT_LOCKTIME = 0x12
+const PSBT_IN_REQUIRED_HEIGHT_LOCKTIME: u8 = 0x12;
 /// Type: Proprietary Use Type PSBT_IN_PROPRIETARY = 0xFC
 const PSBT_IN_PROPRIETARY: u8 = 0xFC;
 
@@ -103,6 +111,16 @@ pub struct Input {
     /// HAS256 hash to preimage map
     #[cfg_attr(feature = "serde", serde(with = "::serde_utils::btreemap_byte_values"))]
     pub hash256_preimages: BTreeMap<sha256d::Hash, Vec<u8>>,
+    /// (PSBT2) Prevout TXID of the input
+    pub previous_txid: Option<Txid>,
+    /// (PSBT2) Prevout vout of the input
+    pub previous_output_index: Option<u32>,
+    /// (PSBT2) Sequence number. If omitted, defaults to 0xffffffff
+    pub sequence: Option<u32>,
+    /// (PSBT2) Minimum required locktime, as a UNIX timestamp. If present, must be greater than or equal to 500000000
+    pub required_time_locktime: Option<u32>,
+    /// (PSBT2) Minimum required locktime, as a blockheight. If present, must be less than 500000000
+    pub required_height_locktime: Option<u32>,
     /// Proprietary key-value pairs for this input.
     #[cfg_attr(feature = "serde", serde(with = "::serde_utils::btreemap_as_seq_byte_values"))]
     pub proprietary: BTreeMap<raw::ProprietaryKey, Vec<u8>>,
@@ -175,6 +193,31 @@ impl Map for Input {
             }
             PSBT_IN_HASH256 => {
                 psbt_insert_hash_pair(&mut self.hash256_preimages, raw_key, raw_value, error::PsbtHash::Hash256)?;
+            }
+            PSBT_IN_PREVIOUS_TXID => {
+                impl_psbt_insert_pair! {
+                    self.previous_txid <= <raw_key: _>|<raw_value: Txid>
+                }
+            }
+            PSBT_IN_OUTPUT_INDEX => {
+                impl_psbt_insert_pair! {
+                    self.previous_output_index <= <raw_key: _>|<raw_value: u32>
+                }
+            }
+            PSBT_IN_SEQUENCE => {
+                impl_psbt_insert_pair! {
+                    self.sequence <= <raw_key: _>|<raw_value: u32>
+                }
+            }
+            PSBT_IN_REQUIRED_TIME_LOCKTIME => {
+                impl_psbt_insert_pair! {
+                    self.required_time_locktime <= <raw_key: _>|<raw_value: u32>
+                }
+            }
+            PSBT_IN_REQUIRED_HEIGHT_LOCKTIME => {
+                impl_psbt_insert_pair! {
+                    self.required_height_locktime <= <raw_key: _>|<raw_value: u32>
+                }
             }
             PSBT_IN_PROPRIETARY => match self.proprietary.entry(raw::ProprietaryKey::from_key(raw_key.clone())?) {
                 ::std::collections::btree_map::Entry::Vacant(empty_key) => {empty_key.insert(raw_value);},

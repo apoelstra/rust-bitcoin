@@ -31,6 +31,10 @@ const PSBT_OUT_REDEEM_SCRIPT: u8 = 0x00;
 const PSBT_OUT_WITNESS_SCRIPT: u8 = 0x01;
 /// Type: BIP 32 Derivation Path PSBT_OUT_BIP32_DERIVATION = 0x02
 const PSBT_OUT_BIP32_DERIVATION: u8 = 0x02;
+/// Type: Output Amount PSBT_OUT_AMOUNT = 0x03
+const PSBT_OUT_AMOUNT: u8 = 0x03;
+/// Type: Output Script PSBT_OUT_SCRIPT = 0x04
+const PSBT_OUT_SCRIPT: u8 = 0x04;
 /// Type: Proprietary Use Type PSBT_IN_PROPRIETARY = 0xFC
 const PSBT_OUT_PROPRIETARY: u8 = 0xFC;
 
@@ -47,6 +51,10 @@ pub struct Output {
     /// corresponding master key fingerprints and derivation paths.
     #[cfg_attr(feature = "serde", serde(with = "::serde_utils::btreemap_as_seq"))]
     pub bip32_derivation: BTreeMap<PublicKey, KeySource>,
+    /// (PSBT2) The amount of the output
+    pub amount: Option<u64>,
+    /// (PSBT2) The script pubkey of the output
+    pub script: Option<Script>,
     /// Proprietary key-value pairs for this output.
     #[cfg_attr(feature = "serde", serde(with = "::serde_utils::btreemap_as_seq_byte_values"))]
     pub proprietary: BTreeMap<raw::ProprietaryKey, Vec<u8>>,
@@ -78,6 +86,16 @@ impl Map for Output {
                     self.bip32_derivation <= <raw_key: PublicKey>|<raw_value: KeySource>
                 }
             }
+            PSBT_OUT_AMOUNT => {
+                impl_psbt_insert_pair! {
+                    self.amount <= <raw_key: _>|<raw_value: u64>
+                }
+            }
+            PSBT_OUT_SCRIPT => {
+                impl_psbt_insert_pair! {
+                    self.script <= <raw_key: _>|<raw_value: Script>
+                }
+            }
             PSBT_OUT_PROPRIETARY => match self.proprietary.entry(raw::ProprietaryKey::from_key(raw_key.clone())?) {
                 Entry::Vacant(empty_key) => {empty_key.insert(raw_value);},
                 Entry::Occupied(_) => return Err(Error::DuplicateKey(raw_key.clone()).into()),
@@ -104,6 +122,14 @@ impl Map for Output {
 
         impl_psbt_get_pair! {
             rv.push(self.bip32_derivation as <PSBT_OUT_BIP32_DERIVATION, PublicKey>|<KeySource>)
+        }
+
+        impl_psbt_get_pair! {
+            rv.push(self.amount as <PSBT_OUT_AMOUNT, _>|<u64>)
+        }
+
+        impl_psbt_get_pair! {
+            rv.push(self.script as <PSBT_OUT_SCRIPT, _>|<Script>)
         }
 
         for (key, value) in self.proprietary.iter() {
