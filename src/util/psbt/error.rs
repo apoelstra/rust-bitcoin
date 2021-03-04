@@ -42,6 +42,9 @@ pub enum Error {
     InvalidProprietaryKey,
     /// Keys within key-value map should never be duplicated.
     DuplicateKey(raw::Key),
+    /// PSBT has an input exclusively requiring a height-based locktime and also
+    /// an input requiring a time-based locktime
+    LocktimeConflict,
     /// The scriptSigs for the unsigned transaction must be empty.
     UnsignedTxHasScriptSigs,
     /// The scriptWitnesses for the unsigned transaction must be empty.
@@ -83,6 +86,7 @@ impl fmt::Display for Error {
             Error::InvalidKey(ref rkey) => write!(f, "invalid key: {}", rkey),
             Error::InvalidProprietaryKey => write!(f, "non-proprietary key type found when proprietary key was expected"),
             Error::DuplicateKey(ref rkey) => write!(f, "duplicate key: {}", rkey),
+            Error::LocktimeConflict => write!(f, "conflicting locktime requirements"),
             Error::UniqueIdMismatch { expected: ref e, actual: ref a } => write!(f, "different id: expected {}, actual {}", e, a),
             Error::NonStandardSigHashType(ref sht) => write!(f, "non-standard sighash type: {}", sht),
             Error::InvalidMagic => f.write_str("invalid magic"),

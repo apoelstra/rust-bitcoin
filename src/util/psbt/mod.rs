@@ -25,7 +25,7 @@ mod map;
 pub mod raw;
 pub mod serialize;
 
-use std::io;
+use std::{cmp, io};
 
 use {Script, Transaction, Txid};
 use consensus::{encode, Encodable, Decodable};
@@ -68,10 +68,49 @@ impl PartiallySignedTransaction {
     }
 
     /// Accessor for the locktime to be used in the final transaction
-    pub fn locktime(&self) -> u32 {
+    pub fn locktime(&self) -> Result<u32, Error> {
         match self.global.tx_data {
-            GlobalTxData::V0 { ref unsigned_tx } => unsigned_tx.lock_time,
-            GlobalTxData::V2 { fallback_locktime, .. } => fallback_locktime,
+            GlobalTxData::V0 { ref unsigned_tx } => Ok(unsigned_tx.lock_time),
+            GlobalTxData::V2 { fallback_locktime, .. } => {
+                #[derive(PartialEq, Eq, PartialOrd, Ord)]
+                enum Locktime {
+                    /// No inputs have specified this type of locktime
+                    Unconstrained,
+                    /// The locktime must be at least this much
+                    Minimum(u32),
+                    /// Some input exclusively requires the other type of locktime
+                    Disallowed,
+                }
+
+                let mut time_locktime = Locktime::Unconstrained;
+                let mut height_locktime = Locktime::Unconstrained;
+                for inp in &self.inputs {
+                    match (inp.required_time_locktime, inp.required_height_locktime) {
+                        (Some(rt), Some(rh)) => {
+                            time_locktime = cmp::max(time_locktime, Locktime::Minimum(rt));
+                            height_locktime = cmp::max(height_locktime, Locktime::Minimum(rh));
+                        },
+                        (Some(rt), None) => {
+                            time_locktime = cmp::max(time_locktime, Locktime::Minimum(rt));
+                            height_locktime = Locktime::Disallowed;
+                        },
+                        (None, Some(rh)) => {
+                            time_locktime = Locktime::Disallowed;
+                            height_locktime = cmp::max(height_locktime, Locktime::Minimum(rh));
+                        },
+                        (None, None) => {}
+                    }
+                }
+
+                match (time_locktime, height_locktime) {
+                    (Locktime::Unconstrained, Locktime::Unconstrained) => Ok(fallback_locktime),
+                    (Locktime::Minimum(x), _) => Ok(x),
+                    (_, Locktime::Minimum(x)) => Ok(x),
+                    (Locktime::Disallowed, Locktime::Disallowed) => Err(Error::LocktimeConflict),
+                    (Locktime::Unconstrained, Locktime::Disallowed) => unreachable!(),
+                    (Locktime::Disallowed, Locktime::Unconstrained) => unreachable!(),
+                }
+            },
         }
     }
 
