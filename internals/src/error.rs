@@ -10,6 +10,11 @@ mod parse_error;
 
 pub use input_string::InputString;
 
+/// Token used to prevent error traits from being used directly
+pub struct Token {
+    _sealed: ()
+}
+
 /// Formats error.
 ///
 /// If `std` feature is OFF appends error source (delimited by `: `). We do this because

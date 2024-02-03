@@ -30,3 +30,18 @@ pub mod error;
 pub mod macros;
 mod parse;
 pub mod serde;
+
+/// Token used to prevent internals traits and functions from being used directly
+pub struct InternalsToken {
+    _sealed: ()
+}
+
+impl InternalsToken {
+    /// Internal constructor for the trait-sealing token
+    fn private() -> Self {
+        InternalsToken {
+            _sealed: ()
+        }
+    }
+}
+
