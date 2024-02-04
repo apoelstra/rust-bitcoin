@@ -3,6 +3,7 @@
 use core::fmt;
 
 use internals::write_err;
+use internals::{InternalsToken, impl_error_traits, error::StdError, error::StdSource};
 
 use crate::address::{Address, NetworkUnchecked};
 use crate::blockdata::script::{witness_program, witness_version};
@@ -32,13 +33,13 @@ pub enum Error {
     UnknownHrp(UnknownHrpError),
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl StdError for Error {
+    fn fmt_without_source(&self, f: &mut fmt::Formatter, _: &InternalsToken) -> fmt::Result {
         use Error::*;
 
         match *self {
-            WitnessVersion(ref e) => write_err!(f, "witness version construction error"; e),
-            WitnessProgram(ref e) => write_err!(f, "witness program error"; e),
+            WitnessVersion(..) => write!(f, "witness version construction error"),
+            WitnessProgram(..) => write!(f, "witness program error"),
             ExcessiveScriptSize => write!(f, "script size exceed 520 bytes"),
             UnrecognizedScript => write!(f, "script is not a p2pkh, p2sh or witness program"),
             NetworkValidation { required, ref address } => {
@@ -46,14 +47,11 @@ impl fmt::Display for Error {
                 fmt::Display::fmt(&address.0, f)?;
                 write!(f, " is not valid on {}", required)
             }
-            Error::UnknownHrp(ref e) => write_err!(f, "unknown hrp"; e),
+            Error::UnknownHrp(..) => write!(f, "unknown hrp"),
         }
     }
-}
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    fn source(&self, _: &InternalsToken) -> Option<&StdSource> {
         use Error::*;
 
         match self {
@@ -64,6 +62,7 @@ impl std::error::Error for Error {
         }
     }
 }
+impl_error_traits!(Error);
 
 impl From<witness_version::TryFromError> for Error {
     fn from(e: witness_version::TryFromError) -> Error { Error::WitnessVersion(e) }

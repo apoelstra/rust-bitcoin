@@ -87,3 +87,34 @@ pub fn fmt_generic_source<T: fmt::Display + ?Sized>(source: Option<&T>, f: &mut 
     }
 }
 
+/// Helper function for the `impl_error_traits` macro. Should not be called directly.
+#[cfg(feature = "std")]
+pub fn std_source<T: StdError>(err: &T) -> Option<&(dyn std::error::Error + 'static)> {
+    StdError::source(err, &InternalsToken::private())
+}
+
+/// Helper function for the `impl_error_traits` macro. Should not be called directly.
+pub fn fmt_error<T: StdError>(err: &T, f: &mut fmt::Formatter) -> fmt::Result {
+    StdError::fmt(err, f, &InternalsToken::private())
+}
+
+/// Annoyingly this can't be done automatically with a blanket-impl because Rust
+/// doesn't allow it.
+#[macro_export]
+macro_rules! impl_error_traits {
+    ($obj:ty) => {
+        #[cfg(feature = "std")]
+        impl ::std::error::Error for $obj {
+            fn source(&self) -> Option<&(dyn ::std::error::Error + 'static)> {
+                $crate::error::std_source(self)
+            }
+        }
+
+        impl ::core::fmt::Display for $obj {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                $crate::error::fmt_error(self, f)
+            }
+        }
+    }
+}
+
